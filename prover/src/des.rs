@@ -262,6 +262,22 @@ mod tests {
     }
 
     #[test]
+    fn parity_bits_are_ignored() {
+        // DES keys carry 56 effective bits; LSB of each byte is parity and
+        // must not influence output (mirrored by PC-1 in-circuit). Flipping
+        // any parity bit is an equivalent key, never a forgery.
+        let key: [u8; 8] = hex::decode("133457799bbcdff1").unwrap().try_into().unwrap();
+        let pt: [u8; 8] = hex::decode("0123456789abcdef").unwrap().try_into().unwrap();
+        let ct = des_encrypt(&pt, &key);
+        for i in 0..8 {
+            let mut equiv = key;
+            equiv[i] ^= 0x01;
+            assert_eq!(des_encrypt(&pt, &equiv), ct, "parity bit {i} ignored");
+            assert_eq!(tdes_encrypt(&pt, &equiv, &key), tdes_encrypt(&pt, &key, &key));
+        }
+    }
+
+    #[test]
     fn sbox_mapped_matches_lookup() {
         for b in 0..8 {
             let m = sbox_mapped(b);

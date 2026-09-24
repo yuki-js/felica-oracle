@@ -133,6 +133,22 @@ pub fn blank_constraint_counts() -> (usize, usize, usize) {
     )
 }
 
+/// Check raw circuit satisfiability for the given witnesses (no proof).
+///
+/// Unlike [`prove`], this bypasses the native pre-checks and feeds the
+/// witnesses straight into the constraint system. Robustness tests use it
+/// to assert that every §7 constraint actually constrains: a mutation that
+/// violates exactly one constraint must come back unsatisfiable, which a
+/// `prove`-only test could never distinguish from a native rejection.
+pub fn check_satisfiable(c: FelicaCircuit) -> bool {
+    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+    let cs = ConstraintSystem::<Fr>::new_ref();
+    if c.generate_constraints(cs.clone()).is_err() {
+        return false;
+    }
+    cs.is_satisfied().unwrap_or(false)
+}
+
 /// Verify a proof against the cached test VK (roundtrip check).
 pub fn verify_proof(public_inputs: &[Fr], proof: &ark_groth16::Proof<Bn254>) -> bool {
     let vk = &PARAMS.1;
