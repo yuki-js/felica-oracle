@@ -119,11 +119,83 @@ static PARAMS: LazyLock<(ProvingKey<Bn254>, VerifyingKey<Bn254>)> = LazyLock::ne
         .expect("setup over blank circuit")
 });
 
+/// Constraint/variable counts of the blank circuit (perf-regression guard).
+pub fn blank_constraint_counts() -> (usize, usize, usize) {
+    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+    let cs = ConstraintSystem::<Fr>::new_ref();
+    FelicaCircuit::blank()
+        .generate_constraints(cs.clone())
+        .expect("blank synthesizes");
+    (
+        cs.num_constraints(),
+        cs.num_instance_variables(),
+        cs.num_witness_variables(),
+    )
+}
+
 /// Verify a proof against the cached test VK (roundtrip check).
 pub fn verify_proof(public_inputs: &[Fr], proof: &ark_groth16::Proof<Bn254>) -> bool {
     let vk = &PARAMS.1;
     let pvk = ark_groth16::prepare_verifying_key(vk);
     ark_groth16::Groth16::<Bn254>::verify_with_processed_vk(&pvk, public_inputs, proof).unwrap_or(false)
+}
+
+fn parse_fq(s: &str) -> Option<ark_bn254::Fq> {
+    use ark_serialize::CanonicalDeserialize;
+    let raw = hex::decode(s).ok()?;
+    ark_bn254::Fq::deserialize_compressed(&raw[..]).ok()
+}
+
+fn parse_fr(s: &str) -> Option<Fr> {
+    use ark_serialize::CanonicalDeserialize;
+    let raw = hex::decode(s).ok()?;
+    Fr::deserialize_compressed(&raw[..]).ok()
+}
+
+/// Verify a hex-encoded [`Attestation`] against the cached test VK.
+///
+/// Returns `false` (never panics) on any malformed coordinate, off-curve
+/// point, or pairing-equation failure. Tampering with any public input
+/// breaks the Groth16 verification equation.
+pub fn verify_attestation(att: &Attestation) -> bool {
+    if att.proof.public_inputs.len() != circuit::PUBLIC_INPUT_ORDER.len() {
+        return false;
+    }
+    let (ax, ay) = (&att.proof.a.0, &att.proof.a.1);
+    let (cx, cy) = (&att.proof.c.0, &att.proof.c.1);
+    let ((bx0, bx1), (by0, by1)) = (&att.proof.b.0, &att.proof.b.1);
+    let (ax, ay, cx, cy) = match (parse_fq(ax), parse_fq(ay), parse_fq(cx), parse_fq(cy)) {
+        (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+        _ => return false,
+    };
+    let (bx0, bx1, by0, by1) =
+        match (parse_fq(bx0), parse_fq(bx1), parse_fq(by0), parse_fq(by1)) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => return false,
+        };
+    let a = ark_bn254::G1Affine::new_unchecked(ax, ay);
+    let c = ark_bn254::G1Affine::new_unchecked(cx, cy);
+    let b = ark_bn254::G2Affine::new_unchecked(
+        ark_bn254::Fq2::new(bx0, bx1),
+        ark_bn254::Fq2::new(by0, by1),
+    );
+    for p in [&a, &c] {
+        if !p.is_on_curve() || !p.is_in_correct_subgroup_assuming_on_curve() {
+            return false;
+        }
+    }
+    if !b.is_on_curve() || !b.is_in_correct_subgroup_assuming_on_curve() {
+        return false;
+    }
+    let proof = ark_groth16::Proof { a, b, c };
+    let mut pis = Vec::with_capacity(att.proof.public_inputs.len());
+    for s in &att.proof.public_inputs {
+        match parse_fr(s) {
+            Some(f) => pis.push(f),
+            None => return false,
+        }
+    }
+    verify_proof(&pis, &proof)
 }
 
 /// Generate the attestation proof for one verified session.
