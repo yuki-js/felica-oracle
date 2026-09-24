@@ -14,7 +14,7 @@ async fn settle_flow_reads_block_via_emulator() {
     let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
 
     let st = oracle
-        .settle_impl(settle_req(
+        .settle(settle_req(
             c1b,
             c2a,
             Some(ReadSpec {
@@ -61,7 +61,7 @@ async fn settle_auth_only_omits_ecmd() {
     let (oracle, mut card, _, _) = setup();
     let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let st = oracle
-        .settle_impl(settle_req(c1b, c2a, None))
+        .settle(settle_req(c1b, c2a, None))
         .await
         .expect("settle");
     assert!(st.ecmd.is_none());
@@ -74,7 +74,7 @@ async fn settle_rejects_forged_c1b() {
     let (_, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let bad_c1b: [u8; 8] = hex::decode("aabbccddeeff0011").unwrap().try_into().unwrap();
     let err = oracle
-        .settle_impl(settle_req(bad_c1b, c2a, None))
+        .settle(settle_req(bad_c1b, c2a, None))
         .await
         .expect_err("forged c1b rejected");
     assert_eq!(err.code(), -32012);
@@ -85,7 +85,7 @@ async fn settle_rejects_unknown_service() {
     let (oracle, mut card, _, _) = setup();
     let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let err = oracle
-        .settle_impl(settle_req(
+        .settle(settle_req(
             c1b,
             c2a,
             Some(ReadSpec {

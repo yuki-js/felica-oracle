@@ -29,7 +29,7 @@ pub async fn auth1_flow(
     use felica::felica_standard::{FelicaStandardCommand, FelicaStandardResponse};
 
     let ch = oracle
-        .challenge_impl(ChallengeRequest {
+        .challenge(ChallengeRequest {
             idm: fixture::IDM_HEX.to_string(),
             r1: r1_hex.to_string(),
         })

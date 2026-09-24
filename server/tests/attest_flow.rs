@@ -11,7 +11,7 @@ async fn attest_verifies_full_session() {
     let (oracle, mut card, gsk, usk) = setup();
     let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let st = oracle
-        .settle_impl(settle_req(
+        .settle(settle_req(
             c1b,
             c2a,
             Some(ReadSpec {
@@ -58,7 +58,7 @@ async fn attest_verifies_full_session() {
 
     // RPC surface: Groth16 attestation binds the verified session.
     let resp = oracle
-        .attest_impl(attest_req_cm(c1b, c2a, auth2_ct, Some(cm_hex.to_string())))
+        .attest(attest_req_cm(c1b, c2a, auth2_ct, Some(cm_hex.to_string())))
         .await
         .expect("attest proves genuine session");
     assert_eq!(resp.idi, hex::encode(fixture::IDI));
@@ -73,14 +73,14 @@ async fn attest_rejects_tampered_auth2() {
     let (oracle, mut card, _, _) = setup();
     let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let st = oracle
-        .settle_impl(settle_req(c1b, c2a, None))
+        .settle(settle_req(c1b, c2a, None))
         .await
         .expect("settle");
     let c2b: [u8; 8] = hex::decode(&st.c2b).unwrap().try_into().unwrap();
     let mut bad = auth2_flow(&mut card, c2b);
     bad[0] ^= 0xFF;
     let err = oracle
-        .attest_impl(attest_req(c1b, c2a, bad))
+        .attest(attest_req(c1b, c2a, bad))
         .await
         .expect_err("tampered auth2 rejected");
     assert_eq!(err.code(), -32010);
@@ -92,7 +92,7 @@ async fn attest_rejects_tid_mismatch() {
     // AUTH2 bound to R1A's TID…
     let (c1b_a, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let st = oracle
-        .settle_impl(settle_req(
+        .settle(settle_req(
             c1b_a,
             c2a,
             Some(ReadSpec {
@@ -119,7 +119,7 @@ async fn attest_rejects_tid_mismatch() {
     assert_eq!(err, felica_oracle::oracle::AttestError::TidMismatch);
     // Same through the RPC surface.
     let rpc_err = oracle
-        .attest_impl(attest_req(c1b_b, c2a, auth2_ct))
+        .attest(attest_req(c1b_b, c2a, auth2_ct))
         .await
         .expect_err("tid mismatch rejected");
     assert_eq!(rpc_err.code(), -32011);

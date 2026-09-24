@@ -66,7 +66,7 @@ impl OracleApiServer for OracleImpl {
     }
 
     async fn challenge(&self, idm: String, r1: String) -> RpcResult<ChallengeResponse> {
-        self.challenge_impl(ChallengeRequest { idm, r1 }).await
+        self.challenge(ChallengeRequest { idm, r1 }).await
     }
 
     async fn settle(
@@ -77,7 +77,7 @@ impl OracleApiServer for OracleImpl {
         c2a: String,
         read_spec: Option<ReadSpec>,
     ) -> RpcResult<SettleResponse> {
-        self.settle_impl(SettleRequest {
+        self.settle(SettleRequest {
             idm,
             r1,
             c1b,
@@ -95,7 +95,7 @@ impl OracleApiServer for OracleImpl {
         auth2: String,
         cm: Option<String>,
     ) -> RpcResult<AttestResponse> {
-        self.attest_impl(AttestRequest {
+        self.attest(AttestRequest {
             idm,
             c1b,
             c2a,

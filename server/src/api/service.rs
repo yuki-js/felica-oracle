@@ -11,7 +11,7 @@ use super::types::{
 };
 
 impl OracleImpl {
-    pub async fn challenge_impl(
+    pub async fn challenge(
         &self,
         req: ChallengeRequest,
     ) -> RpcResult<ChallengeResponse> {
@@ -33,7 +33,7 @@ impl OracleImpl {
         })
     }
 
-    pub async fn settle_impl(&self, req: SettleRequest) -> RpcResult<SettleResponse> {
+    pub async fn settle(&self, req: SettleRequest) -> RpcResult<SettleResponse> {
         use crate::oracle::schedule;
 
         let idm = req.idm_bytes().map_err(crate::error::invalid_params)?;
@@ -84,7 +84,7 @@ impl OracleImpl {
         })
     }
 
-    pub async fn attest_impl(&self, req: AttestRequest) -> RpcResult<AttestResponse> {
+    pub async fn attest(&self, req: AttestRequest) -> RpcResult<AttestResponse> {
         use crate::oracle::{AttestError, verify_session};
         use std::time::{SystemTime, UNIX_EPOCH};
 
