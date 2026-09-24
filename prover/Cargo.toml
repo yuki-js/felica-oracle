@@ -22,3 +22,8 @@ felica = { version = "1.0.3", default-features = false }
 hex = "0.4"
 hex-literal = "1.1.0"
 des = "0.9"
+criterion = "0.5"
+
+[[bench]]
+name = "session"
+harness = false
