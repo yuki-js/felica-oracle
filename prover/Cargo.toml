@@ -5,12 +5,20 @@ edition = "2021"
 
 [dependencies]
 thiserror = "2"
+hex = "0.4"
+rand = "0.8"
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-serialize = "0.5"
 ark-crypto-primitives = { version = "0.5", features = ["sponge"] }
+ark-relations = "0.5"
+ark-groth16 = "0.5"
+ark-r1cs-std = "0.5"
+ark-std = "0.5"
+ark-snark = "0.5"
 
 [dev-dependencies]
 felica = { version = "1.0.3", default-features = false }
 hex = "0.4"
 hex-literal = "1.1.0"
+des = "0.9"

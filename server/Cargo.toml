@@ -12,6 +12,7 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 felica = { version = "1.0.3", default-features = false }
+felica-prover = { path = "../prover" }
 des = "0.9"
 hex = "0.4"
 thiserror = "2"

@@ -5,8 +5,7 @@ use felica_oracle::api::types::ReadSpec;
 use felica_oracle::oracle::{OracleKeys, fixture, verify_session};
 
 /// challenge → Auth1 → settle → Auth2 → attest verification, end to end.
-/// The RPC itself still returns PROVE_FAILED until the circuit lands; the
-/// verified session data is asserted directly.
+/// The RPC returns the Groth16 attestation binding the verified session.
 #[tokio::test]
 async fn attest_verifies_full_session() {
     let (oracle, mut card, gsk, usk) = setup();
@@ -57,12 +56,16 @@ async fn attest_verifies_full_session() {
     .expect("session verifies with cm");
     assert_eq!(v2.cm, hex::decode(cm_hex).unwrap()[..]);
 
-    // RPC surface: proof gap is explicit, not silent.
-    let err = oracle
+    // RPC surface: Groth16 attestation binds the verified session.
+    let resp = oracle
         .attest_impl(attest_req_cm(c1b, c2a, auth2_ct, Some(cm_hex.to_string())))
         .await
-        .expect_err("proof pending");
-    assert_eq!(err.code(), -32020);
+        .expect("attest proves genuine session");
+    assert_eq!(resp.idi, hex::encode(fixture::IDI));
+    assert_eq!(resp.r2, hex::encode(v2.r2));
+    assert!(resp.attested_at > 0);
+    assert_eq!(resp.proof.alg, "groth16-bn254");
+    assert_eq!(resp.proof.public_inputs.len(), 8, "Sui 8-input packing");
 }
 
 #[tokio::test]

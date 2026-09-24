@@ -3,7 +3,6 @@
 //! that decides, validates, or computes lives here.
 
 use jsonrpsee::core::RpcResult;
-use jsonrpsee::types::ErrorObjectOwned;
 
 use super::handler::OracleImpl;
 use super::types::{
@@ -104,12 +103,43 @@ impl OracleImpl {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| crate::error::internal(e.to_string()))?
             .as_secs();
-        // TODO(circuit): Groth16 proof over
-        // (r1, c1b, c2a, auth2, cm) -> (idi, r2, cm_out, attested_at).
-        // Verified session data is ready; proof generation is the gap.
-        let _ = (verified, attested_at);
-        Err(ErrorObjectOwned::from(
-            crate::error::prove_failed("circuit not yet implemented"),
-        ))
+        // Groth16 proof over (r1, c1b, c2a, auth2, cm) -> (idi, r2, cm_out,
+        // attested_at). Native session checks already passed; the circuit
+        // re-enforces §7 constraints 1–6 in zero knowledge and aliases
+        // constraint 7 (`cm_out == cm`) by public-input packing.
+        let att = felica_prover::prove(&felica_prover::ProveRequest {
+            idm,
+            c1b,
+            c2a,
+            auth2,
+            cm,
+            k_group: self.config.k_group,
+            k_user: self.config.k_user,
+            attested_at,
+        })
+        .map_err(|e| match e {
+            felica_prover::ProverError::MacMismatch => crate::error::mac_mismatch(),
+            felica_prover::ProverError::TidMismatch => crate::error::tid_mismatch(),
+            felica_prover::ProverError::C1bMismatch => crate::error::c1b_mismatch(),
+            felica_prover::ProverError::ProveFailed
+            | felica_prover::ProverError::NotImplemented => {
+                crate::error::prove_failed(e.to_string())
+            }
+        })?;
+        debug_assert_eq!(att.idi, verified.idi, "prover IDi matches verifier");
+        debug_assert_eq!(att.r2, verified.r2, "prover R2 matches verifier");
+        debug_assert_eq!(att.cm_out, verified.cm, "cm_out == cm");
+        Ok(AttestResponse {
+            idi: hex::encode(att.idi),
+            r2: hex::encode(att.r2),
+            attested_at: att.attested_at,
+            proof: super::types::Groth16Proof {
+                alg: att.proof.alg,
+                a: att.proof.a,
+                b: att.proof.b,
+                c: att.proof.c,
+                public_inputs: att.proof.public_inputs,
+            },
+        })
     }
 }
