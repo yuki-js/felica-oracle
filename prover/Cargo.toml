@@ -1,0 +1,16 @@
+[package]
+name = "felica-prover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "2"
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+ark-serialize = "0.5"
+ark-crypto-primitives = { version = "0.5", features = ["sponge"] }
+
+[dev-dependencies]
+felica = { version = "1.0.3", default-features = false }
+hex = "0.4"
+hex-literal = "1.1.0"
