@@ -399,13 +399,19 @@ name = "felica-oracle"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cbc",
+ "des",
  "felica",
+ "hex",
  "jsonrpsee",
  "serde",
  "serde_json",
+ "subtle",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]

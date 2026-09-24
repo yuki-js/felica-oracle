@@ -12,3 +12,9 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 felica = { version = "1.0.3", default-features = false }
+des = "0.9"
+hex = "0.4"
+thiserror = "2"
+zeroize = "1"
+subtle = "2"
+cbc = "0.2"
