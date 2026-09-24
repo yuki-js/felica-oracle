@@ -361,6 +361,13 @@ pub fn fr_from_le(bytes: &[u8]) -> Fr {
 }
 
 /// Canonical public-input vector for given wire bytes.
+///
+/// Every packing is injective on its domain: 8B/16B limbs are far below `r`,
+/// and `cm` is a canonical Poseidon digest (`< r`) by construction, so
+/// `from_le_bytes_mod_order` round-trips it exactly. All sides (prover,
+/// circuit, verifier) must use this same bytes→field mapping; a non-
+/// canonical `cm ≥ r` would wrap identically on both sides, never creating
+/// a second byte-string for one proof.
 pub fn public_inputs_fr(
     r1: &[u8; 8],
     c1b: &[u8; 8],

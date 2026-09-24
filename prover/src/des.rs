@@ -294,4 +294,102 @@ mod tests {
             }
         }
     }
+
+    /// Differential fuzz vs the `des` crate (the same family felica-rs
+    /// uses): a single mistranscribed table entry would diverge on random
+    /// blocks with overwhelming probability (each case fans out over
+    /// 16 rounds × 8 S-boxes; 2000 cases ≈ 256k S-box evaluations).
+    #[test]
+    fn differential_vs_des_crate() {
+        use des::cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
+        use des::{Des, TdesEde3};
+
+        fn ref_enc(pt: &[u8; 8], k: &[u8; 8]) -> [u8; 8] {
+            let c = Des::new(k.into());
+            let mut b = (*pt).into();
+            c.encrypt_block(&mut b);
+            b.into()
+        }
+        fn ref_dec(ct: &[u8; 8], k: &[u8; 8]) -> [u8; 8] {
+            let c = Des::new(k.into());
+            let mut b = (*ct).into();
+            c.decrypt_block(&mut b);
+            b.into()
+        }
+        fn ref_3enc(pt: &[u8; 8], k1: &[u8; 8], k2: &[u8; 8]) -> [u8; 8] {
+            let mut k = [0u8; 24];
+            k[..8].copy_from_slice(k1);
+            k[8..16].copy_from_slice(k2);
+            k[16..].copy_from_slice(k1);
+            let c = TdesEde3::new((&k).into());
+            let mut b = (*pt).into();
+            c.encrypt_block(&mut b);
+            b.into()
+        }
+        fn ref_3dec(ct: &[u8; 8], k1: &[u8; 8], k2: &[u8; 8]) -> [u8; 8] {
+            let mut k = [0u8; 24];
+            k[..8].copy_from_slice(k1);
+            k[8..16].copy_from_slice(k2);
+            k[16..].copy_from_slice(k1);
+            let c = TdesEde3::new((&k).into());
+            let mut b = (*ct).into();
+            c.decrypt_block(&mut b);
+            b.into()
+        }
+        // xorshift64* for case generation (deterministic seed).
+        fn rng_next(s: &mut u64) -> u64 {
+            let mut x = *s;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            *s = x;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+
+        let mut seed = 0xDE5CA1E_F00D_CAFE_u64;
+        for _ in 0..2000 {
+            let mut k1 = [0u8; 8];
+            let mut k2 = [0u8; 8];
+            let mut pt = [0u8; 8];
+            for b in k1.iter_mut().chain(k2.iter_mut()).chain(pt.iter_mut()) {
+                seed = rng_next(&mut seed);
+                *b = (seed >> 56) as u8;
+                seed = rng_next(&mut seed);
+            }
+            assert_eq!(des_encrypt(&pt, &k1), ref_enc(&pt, &k1));
+            assert_eq!(des_decrypt(&ref_enc(&pt, &k1), &k1), pt);
+            assert_eq!(tdes_encrypt(&pt, &k1, &k2), ref_3enc(&pt, &k1, &k2));
+            assert_eq!(tdes_decrypt(&ref_3enc(&pt, &k1, &k2), &k1, &k2), pt);
+        }
+        // CBC + MAC chains against single-block references.
+        let mut seed = 0x0BAD_F00D_5EED_1234_u64;
+        for _ in 0..200 {
+            let mut key = [0u8; 8];
+            let mut data = [0u8; 32];
+            for b in key.iter_mut().chain(data.iter_mut()) {
+                seed = rng_next(&mut seed);
+                *b = (seed >> 56) as u8;
+                seed = rng_next(&mut seed);
+            }
+            // CBC decrypt, zero IV.
+            let pt = cbc_decrypt(&data, &key).expect("aligned");
+            let mut prev = [0u8; 8];
+            for (i, chunk) in data.chunks(8).enumerate() {
+                let ct: [u8; 8] = chunk.try_into().unwrap();
+                let mut expect = ref_dec(&ct, &key);
+                for j in 0..8 {
+                    expect[j] ^= prev[j];
+                }
+                assert_eq!(&pt[i * 8..(i + 1) * 8], &expect);
+                prev = ct;
+            }
+            // MAC over the first 24B with opcode 0x13.
+            let mac = command_mac(0x13, &pt[..24]);
+            let mut m = [34u8, 0x13, 0, 0, 0, 0, 0, 0];
+            for chunk in pt[..24].chunks(8) {
+                m = ref_enc(&m, &chunk.try_into().unwrap());
+            }
+            assert_eq!(mac, m);
+        }
+    }
 }

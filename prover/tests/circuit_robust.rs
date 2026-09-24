@@ -12,7 +12,7 @@
 mod common;
 
 use common::*;
-use felica_prover::{check_satisfiable, des::tdes_encrypt};
+use felica_prover::{check_satisfiable, des::tdes_encrypt, verify_attestation};
 
 /// Deterministic xorshift64* — no extra deps for fuzz randomness.
 struct Rng(u64);
@@ -176,4 +176,29 @@ fn fuzz_mutations_never_satisfy() {
         );
     }
     assert!(hit.iter().all(|h| *h), "fuzz must cover all witness regions");
+}
+
+/// `verify_attestation` never panics and rejects garbage: empty strings,
+/// non-hex, wrong lengths, and off-modulus field encodings (e.g. 32 bytes
+/// of `0xff`, which exceeds `r`).
+#[test]
+fn verify_rejects_garbage() {
+    let (c1b, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
+    let base = felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk))
+        .expect("genuine session proves");
+    assert!(verify_attestation(&base));
+    for tamper in ["zz", "", "00", &"ff".repeat(31), &"ff".repeat(33)] {
+        let mut bad = base.clone();
+        bad.proof.a.0 = tamper.to_string();
+        assert!(!verify_attestation(&bad), "garbage a.x rejected");
+        let mut bad = base.clone();
+        bad.proof.public_inputs[5] = tamper.to_string();
+        assert!(!verify_attestation(&bad), "garbage pi rejected");
+    }
+    let mut bad = base.clone();
+    bad.proof.public_inputs.pop();
+    assert!(!verify_attestation(&bad), "short pi rejected");
+    let mut bad = base.clone();
+    bad.proof.public_inputs.push("00".repeat(32));
+    assert!(!verify_attestation(&bad), "long pi rejected");
 }
