@@ -1,62 +1,8 @@
-use felica_oracle::api::types::{ChallengeRequest, ReadSpec, SettleRequest};
-use felica_oracle::api::OracleImpl;
+mod common;
+
+use common::{R1_HEX, auth1_flow, settle_req, setup};
+use felica_oracle::api::types::ReadSpec;
 use felica_oracle::oracle::{OracleKeys, fixture, schedule};
-
-const R1_HEX: &str = "0011223344556677";
-
-type Emulator = felica::felica_standard::FelicaStandardEmulator;
-
-/// Test oracle wired to the shared fixture card. Returns
-/// `(oracle, card, gsk, usk)`; the card IDm is always [`fixture::IDM`].
-fn setup() -> (OracleImpl, Emulator, [u8; 8], [u8; 8]) {
-    let f = fixture::setup();
-    let oracle = OracleImpl::new(fixture::app_config(&f));
-    let fixture::Fixture { card, gsk, usk } = f;
-    (oracle, card, gsk, usk)
-}
-
-/// challenge → card Authentication1, returning genuine `(c1b, c2a)`.
-async fn auth1_flow(oracle: &OracleImpl, card: &mut Emulator) -> ([u8; 8], [u8; 8]) {
-    use felica::felica_standard::{FelicaStandardCommand, FelicaStandardResponse};
-
-    let ch = oracle
-        .challenge_impl(ChallengeRequest {
-            idm: fixture::IDM_HEX.to_string(),
-            r1: R1_HEX.to_string(),
-        })
-        .await
-        .expect("challenge");
-    assert_eq!(ch.system_code, 0x0003, "challenge carries the node path");
-    assert_eq!(ch.areas, vec![fixture::AREA]);
-    assert_eq!(ch.services, vec![fixture::SERVICE]);
-    let c1a: [u8; 8] = hex::decode(&ch.c1a).unwrap().try_into().unwrap();
-    let frame = card
-        .handle_command(FelicaStandardCommand::Authentication1 {
-            idm: fixture::IDM,
-            areas: vec![fixture::AREA],
-            services: vec![fixture::SERVICE],
-            challenge_1a: c1a,
-        })
-        .expect("card answers authentication1");
-    match FelicaStandardResponse::from_bytes(&frame).expect("parse") {
-        FelicaStandardResponse::Authentication1 {
-            challenge_1b,
-            challenge_2a,
-            ..
-        } => (challenge_1b, challenge_2a),
-        other => panic!("unexpected response: {other:?}"),
-    }
-}
-
-fn settle_req(c1b: [u8; 8], c2a: [u8; 8], read_spec: Option<ReadSpec>) -> SettleRequest {
-    SettleRequest {
-        idm: fixture::IDM_HEX.to_string(),
-        r1: R1_HEX.to_string(),
-        c1b: hex::encode(c1b),
-        c2a: hex::encode(c2a),
-        read_spec,
-    }
-}
 
 /// Full holder flow through the real RPC-layer methods:
 /// challenge → card Auth1 → settle → card Auth2 + ecmd → read verify.
@@ -65,7 +11,7 @@ async fn settle_flow_reads_block_via_emulator() {
     use felica::felica_standard::{FelicaStandardCommand, FelicaStandardResponse};
 
     let (oracle, mut card, gsk, usk) = setup();
-    let (c1b, c2a) = auth1_flow(&oracle, &mut card).await;
+    let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
 
     let st = oracle
         .settle_impl(settle_req(
@@ -113,7 +59,7 @@ async fn settle_flow_reads_block_via_emulator() {
 #[tokio::test]
 async fn settle_auth_only_omits_ecmd() {
     let (oracle, mut card, _, _) = setup();
-    let (c1b, c2a) = auth1_flow(&oracle, &mut card).await;
+    let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let st = oracle
         .settle_impl(settle_req(c1b, c2a, None))
         .await
@@ -125,7 +71,7 @@ async fn settle_auth_only_omits_ecmd() {
 #[tokio::test]
 async fn settle_rejects_forged_c1b() {
     let (oracle, mut card, _, _) = setup();
-    let (_, c2a) = auth1_flow(&oracle, &mut card).await;
+    let (_, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let bad_c1b: [u8; 8] = hex::decode("aabbccddeeff0011").unwrap().try_into().unwrap();
     let err = oracle
         .settle_impl(settle_req(bad_c1b, c2a, None))
@@ -137,7 +83,7 @@ async fn settle_rejects_forged_c1b() {
 #[tokio::test]
 async fn settle_rejects_unknown_service() {
     let (oracle, mut card, _, _) = setup();
-    let (c1b, c2a) = auth1_flow(&oracle, &mut card).await;
+    let (c1b, c2a) = auth1_flow(&oracle, &mut card, R1_HEX).await;
     let err = oracle
         .settle_impl(settle_req(
             c1b,

@@ -85,7 +85,31 @@ impl OracleImpl {
         })
     }
 
-    pub async fn attest_impl(&self, _req: AttestRequest) -> RpcResult<AttestResponse> {
-        Err(ErrorObjectOwned::from(crate::error::not_implemented()))
+    pub async fn attest_impl(&self, req: AttestRequest) -> RpcResult<AttestResponse> {
+        use crate::oracle::{AttestError, verify_session};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let idm = req.idm_bytes().map_err(crate::error::invalid_params)?;
+        let c1b = req.c1b_bytes().map_err(crate::error::invalid_params)?;
+        let c2a = req.c2a_bytes().map_err(crate::error::invalid_params)?;
+        let auth2 = req.auth2_bytes().map_err(crate::error::invalid_params)?;
+        let cm = req.cm_bytes().map_err(crate::error::invalid_params)?;
+        let keys = crate::oracle::OracleKeys::new(self.config.k_group, self.config.k_user);
+        let verified = verify_session(&keys, &idm, &c1b, &c2a, &auth2, &cm).map_err(|e| match e {
+            AttestError::MacMismatch => crate::error::mac_mismatch(),
+            AttestError::TidMismatch => crate::error::tid_mismatch(),
+            AttestError::Malformed => crate::error::invalid_params(e.to_string()),
+        })?;
+        let attested_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| crate::error::internal(e.to_string()))?
+            .as_secs();
+        // TODO(circuit): Groth16 proof over
+        // (r1, c1b, c2a, auth2, cm) -> (idi, r2, cm_out, attested_at).
+        // Verified session data is ready; proof generation is the gap.
+        let _ = (verified, attested_at);
+        Err(ErrorObjectOwned::from(
+            crate::error::prove_failed("circuit not yet implemented"),
+        ))
     }
 }

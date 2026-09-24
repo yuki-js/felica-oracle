@@ -29,6 +29,10 @@ pub fn mac_mismatch() -> ErrorObjectOwned {
     )
 }
 
+pub fn prove_failed(msg: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObjectOwned::owned(PROVE_FAILED, msg.into(), None::<String>)
+}
+
 pub fn tid_mismatch() -> ErrorObjectOwned {
     ErrorObjectOwned::owned(
         TID_MISMATCH,
