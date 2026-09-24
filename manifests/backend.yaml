@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: felica-oracle
+  labels:
+    app: felica-oracle
+    component: backend
+    name: backend
+    environment: production
+spec:
+  replicas: 1
+  # Recreate: single Groth16 prove peaks ~500MB; avoid 2 pods doubling RAM.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: felica-oracle
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: felica-oracle
+        component: backend
+        name: backend
+        environment: production
+    spec:
+      imagePullSecrets:
+        - name: github-registry-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: backend
+          image: ghcr.io/yuki-js/felica-oracle:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+          env:
+            - name: APP_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: oracle-secret
+                  key: app-config
+            - name: RUST_LOG
+              value: info
+          # Measured 2026-09-25 (release, this host):
+          # idle RSS ~5.7MB/33 threads; ping ~6ms; challenge ~0.2ms;
+          # single prove 1.8-3.0s test-time, peak RSS 387-494MB,
+          # 750-990% CPU (rayon). Suite of 13 proves peaked 1.19GB.
+          # requests = schedule-safe baseline; limits = 1 concurrent
+          # prove + headroom (2 concurrent ~1GB). Follows
+          # larkmcp/quarkus 256Mi/250m-512Mi/500m baseline, raised for ZK.
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1536Mi"
+              cpu: "2000m"
+          # No GET /health in jsonrpsee (POST / only, GET -> 405), so
+          # tcpSocket probes. Proving-key setup ~1-2s on first attest;
+          # startupProbe covers it.
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: felica-oracle
+  labels:
+    app: felica-oracle
+    component: backend
+    name: backend
+    environment: production
+spec:
+  type: ClusterIP
+  selector:
+    app: felica-oracle
+    component: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP

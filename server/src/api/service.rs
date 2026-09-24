@@ -119,8 +119,10 @@ impl OracleImpl {
         })
         .map_err(|e| match e {
             felica_prover::ProverError::MacMismatch => crate::error::mac_mismatch(),
-            felica_prover::ProverError::TidMismatch => crate::error::tid_mismatch(),
+            felica_prover::ProverError::TidMismatch
+            | felica_prover::ProverError::TnMismatch => crate::error::tid_mismatch(),
             felica_prover::ProverError::C1bMismatch => crate::error::c1b_mismatch(),
+            felica_prover::ProverError::Malformed => crate::error::invalid_params(e.to_string()),
             felica_prover::ProverError::ProveFailed
             | felica_prover::ProverError::NotImplemented => {
                 crate::error::prove_failed(e.to_string())

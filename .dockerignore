@@ -1,0 +1,7 @@
+target/
+server/target/
+prover/target/
+circom-prover/target/
+circom-prover/build/
+sui/felica_oracle/build/
+.git/
