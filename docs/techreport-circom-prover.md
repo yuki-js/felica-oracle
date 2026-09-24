@@ -259,10 +259,27 @@ either way, and the snarkjs figure is dominated by spinning up Node.
 What actually matters in the table is the constraint counts landing
 within two percent of each other and the publics agreeing exactly: the
 frontends describe the same relation at the same scale, and the Rust
-mirror keeps the proving speed the arkworks backend was built for
-(its own reference numbers — 1.25 µs single DES, 20 µs precheck, 92 ms
-synthesis, 1.2 s prove, 2.1 ms verify — reproduce here as 1.19, 19.8,
-88, 1.21, 2.07, same machine, same bench file).
+mirror keeps the proving speed the arkworks backend was built for.
+
+![Groth16 prove time, same session](figs/prove_time.svg)
+
+![Constraint counts, same relation](figs/constraints.svg)
+
+The bench suite tells the same story at finer grain. Every group below
+pairs the prover crate's documented reference against the mirror's
+measured criterion median on this box, and every pair overlaps —
+unsurprising for the native groups, which are literally the same code,
+and confirming for the proving groups, where the R1CS has the same
+shape.
+
+| Bench group | Prover reference | Mirror measured |
+| Single DES block | ~1.25 µs | ~1.19 µs (1.179–1.204) |
+| Session precheck (native) | ~20 µs | ~19.8 µs (19.53–20.09) |
+| Blank synthesis | ~92 ms | ~88 ms (85.3–90.0) |
+| Groth16 prove | ~1.2 s | ~1.21 s (1.174–1.261) |
+| Groth16 verify | ~2.1 ms | ~2.07 ms (2.048–2.100) |
+
+![Session bench suite, log scale](figs/benches.svg)
 
 ## 7. Security, plainly stated
 
@@ -322,7 +339,8 @@ sh circom-prover/scripts/head_to_head.sh
 The last script runs the local ceremony, setup, contribution, prove,
 verify, and the publics diff end to end. Everything it writes lands in
 `build/`, which is git-ignored; a fresh clone reproduces every number
-in this report.
+in this report. The figures are generated without dependencies by
+`python3 docs/figs/gen_figs.py`.
 
 ## 9. What comes next
 
