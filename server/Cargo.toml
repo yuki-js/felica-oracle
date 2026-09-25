@@ -2,6 +2,7 @@
 name = "felica-oracle"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 jsonrpsee = { version = "0.26", features = ["server", "macros"] }
