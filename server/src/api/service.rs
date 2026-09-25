@@ -11,6 +11,20 @@ use super::types::{
 };
 
 impl OracleImpl {
+    /// Proving key bytes (setup ceremony output) as hex. Served from the
+    /// startup-loaded memory copy — no per-request file I/O.
+    pub async fn get_proving_key(&self) -> RpcResult<String> {
+        Ok(hex::encode(self.proving_key.bytes()))
+    }
+
+    /// Verifying key bytes as hex. Encoded from the deserialized cache.
+    pub async fn get_verifying_key(&self) -> RpcResult<String> {
+        let pk = self
+            .proving_key()
+            .map_err(|e| crate::error::prove_failed(e.to_string()))?;
+        Ok(hex::encode(felica_prover::encode_verifying_key(&pk.vk)))
+    }
+
     pub async fn challenge(
         &self,
         req: ChallengeRequest,
@@ -88,6 +102,12 @@ impl OracleImpl {
         use crate::oracle::{AttestError, verify_session};
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        // Proving uses only the setup-loaded key: deserialized once and
+        // cached (`handler::ensure_keys_loaded` warms it at startup).
+        // Key generation never happens here.
+        let pk = self
+            .proving_key()
+            .map_err(|e| crate::error::prove_failed(e.to_string()))?;
         let idm = req.idm_bytes().map_err(crate::error::invalid_params)?;
         let c1b = req.c1b_bytes().map_err(crate::error::invalid_params)?;
         let c2a = req.c2a_bytes().map_err(crate::error::invalid_params)?;
@@ -107,7 +127,7 @@ impl OracleImpl {
         // attested_at). Native session checks already passed; the circuit
         // re-enforces §7 constraints 1–6 in zero knowledge and aliases
         // constraint 7 (`cm_out == cm`) by public-input packing.
-        let att = felica_prover::prove(&felica_prover::ProveRequest {
+        let att = felica_prover::prove(pk, &felica_prover::ProveRequest {
             idm,
             c1b,
             c2a,
@@ -119,10 +139,8 @@ impl OracleImpl {
         })
         .map_err(|e| match e {
             felica_prover::ProverError::MacMismatch => crate::error::mac_mismatch(),
-            felica_prover::ProverError::TidMismatch
-            | felica_prover::ProverError::TnMismatch => crate::error::tid_mismatch(),
+            felica_prover::ProverError::TidMismatch => crate::error::tid_mismatch(),
             felica_prover::ProverError::C1bMismatch => crate::error::c1b_mismatch(),
-            felica_prover::ProverError::Malformed => crate::error::invalid_params(e.to_string()),
             felica_prover::ProverError::ProveFailed
             | felica_prover::ProverError::NotImplemented => {
                 crate::error::prove_failed(e.to_string())

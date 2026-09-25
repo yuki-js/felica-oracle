@@ -5,6 +5,7 @@
 use felica_oracle::api::types::{AttestRequest, ChallengeRequest, ReadSpec, SettleRequest};
 use felica_oracle::api::OracleImpl;
 use felica_oracle::oracle::fixture;
+use felica_oracle::params::ProvingKeyBytes;
 
 pub const R1_HEX: &str = "0011223344556677";
 pub const R1B_HEX: &str = "aabbccddeeff0011";
@@ -15,7 +16,12 @@ pub type Emulator = felica::felica_standard::FelicaStandardEmulator;
 /// `(oracle, card, gsk, usk)`; the card IDm is always [`fixture::IDM`].
 pub fn setup() -> (OracleImpl, Emulator, [u8; 8], [u8; 8]) {
     let f = fixture::setup();
-    let oracle = OracleImpl::new(fixture::app_config(&f));
+    let config = fixture::app_config(&f);
+    // In-memory key bytes (no fs): the request path under test never
+    // deserializes them; deserialization stays in the prover crate.
+    let key =
+        ProvingKeyBytes::from_bytes(config.proving_key_path.clone(), vec![0u8; 32]);
+    let oracle = OracleImpl::new(config, key);
     let fixture::Fixture { card, gsk, usk } = f;
     (oracle, card, gsk, usk)
 }

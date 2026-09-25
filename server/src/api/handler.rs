@@ -1,7 +1,7 @@
 //! RPC wire layer: trait, struct, and pure delegation to [`super::service`].
 //! No deciding, validating, or computing happens here.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use jsonrpsee::{
     core::{RpcResult, async_trait},
@@ -13,6 +13,7 @@ use super::types::{
     SettleResponse,
 };
 use crate::config::AppConfig;
+use crate::params::ProvingKeyBytes;
 
 /// Wire params stay destructured: jsonrpsee maps spec's object-form params
 /// (`{"idm": …, "r1": …}`) onto these by name. Each handler immediately folds
@@ -45,17 +46,57 @@ pub trait OracleApi {
         auth2: String,
         cm: Option<String>,
     ) -> RpcResult<AttestResponse>;
+
+    #[method(name = "get_proving_key")]
+    async fn get_proving_key(&self) -> RpcResult<String>;
+
+    #[method(name = "get_verifying_key")]
+    async fn get_verifying_key(&self) -> RpcResult<String>;
 }
 
 pub struct OracleImpl {
     pub(crate) config: Arc<AppConfig>,
+    /// Setup-loaded proving-key bytes (one load at startup, shared read-only).
+    pub(crate) proving_key: ProvingKeyBytes,
+    /// Deserialized key, initialized once (startup warm or first attest).
+    pk_cache: OnceLock<felica_prover::FelicaProvingKey>,
 }
 
 impl OracleImpl {
-    pub fn new(config: AppConfig) -> Self {
+    /// Construction does no I/O; `main` loads via `ProvingKeyBytes::load`.
+    pub fn new(config: AppConfig, proving_key: ProvingKeyBytes) -> Self {
         Self {
             config: Arc::new(config),
+            proving_key,
+            pk_cache: OnceLock::new(),
         }
+    }
+
+    /// Deserialize the preloaded bytes once. Called at startup for fail-fast
+    /// validation; `attest` reuses the cache without per-request I/O.
+    pub fn ensure_keys_loaded(&self) -> anyhow::Result<()> {
+        self.load_cached()
+            .map(|_| ())
+            .map_err(|e| anyhow::anyhow!("invalid proving key: {e}"))
+    }
+
+    pub(crate) fn proving_key(
+        &self,
+    ) -> Result<&felica_prover::FelicaProvingKey, felica_prover::KeyLoadError> {
+        self.load_cached()
+    }
+
+    /// Stable-only once-init (`OnceLock::get_or_try_init` is unavailable on
+    /// this toolchain). A raced loser is dropped; the winner is reused.
+    fn load_cached(
+        &self,
+    ) -> Result<&felica_prover::FelicaProvingKey, felica_prover::KeyLoadError> {
+        if let Some(pk) = self.pk_cache.get() {
+            return Ok(pk);
+        }
+        let pk = felica_prover::load_proving_key(self.proving_key.bytes())?;
+        let _ = self.pk_cache.set(pk);
+        Ok(self.pk_cache.get().expect("cache set above"))
     }
 }
 
@@ -103,5 +144,13 @@ impl OracleApiServer for OracleImpl {
             cm,
         })
         .await
+    }
+
+    async fn get_proving_key(&self) -> RpcResult<String> {
+        self.get_proving_key().await
+    }
+
+    async fn get_verifying_key(&self) -> RpcResult<String> {
+        self.get_verifying_key().await
     }
 }

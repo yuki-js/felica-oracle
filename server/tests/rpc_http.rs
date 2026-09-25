@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 
 use felica_oracle::api::{OracleApiServer, OracleImpl};
 use felica_oracle::oracle::fixture;
+use felica_oracle::params::ProvingKeyBytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const R1_HEX: &str = "0011223344556677";
@@ -24,7 +25,10 @@ async fn start_server() -> (
     fixture::Fixture,
 ) {
     let f = fixture::setup();
-    let module = OracleImpl::new(fixture::app_config(&f)).into_rpc();
+    let config = fixture::app_config(&f);
+    let key =
+        ProvingKeyBytes::from_bytes(config.proving_key_path.clone(), vec![0u8; 32]);
+    let module = OracleImpl::new(config, key).into_rpc();
     // Same config as `src/main.rs`: spec §8 forbids batch requests.
     let cfg = jsonrpsee::server::ServerConfig::builder()
         .set_batch_request_config(jsonrpsee::server::BatchRequestConfig::Disabled)

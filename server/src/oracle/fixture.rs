@@ -54,5 +54,6 @@ pub fn app_config(f: &Fixture) -> AppConfig {
         system_code: SYSTEM_CODE,
         areas: vec![AREA],
         services: vec![SERVICE],
+        proving_key_path: crate::params::default_proving_key_path(),
     }
 }
