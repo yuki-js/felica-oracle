@@ -73,7 +73,7 @@ fn proves_genuine_session() {
         k_user: usk,
         attested_at: ATTESTED_AT,
     };
-    let att = felica_prover::prove(&req).expect("prove certifies genuine session");
+    let att = felica_prover::prove(test_key(), &req).expect("prove certifies genuine session");
     assert_eq!(att.idi, IDI, "circuit certifies IDi");
     assert_eq!(att.cm_out, cm, "cm_out == cm");
     assert_eq!(att.attested_at, ATTESTED_AT);
@@ -90,12 +90,12 @@ fn prove_api_error_is_typed() {
 #[test]
 fn roundtrip_and_packing_pins() {
     let (c1b, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
-    let att = felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk))
+    let att = felica_prover::prove(test_key(), &prove_req(c1b, c2a, auth2, cm, gsk, usk))
         .expect("genuine session proves");
     assert_eq!(att.idi, IDI);
     assert_eq!(att.cm_out, cm);
     assert_eq!(att.attested_at, ATTESTED_AT);
-    assert!(verify_attestation(&att), "fresh proof verifies");
+    assert!(verify_attestation(&test_key().vk, &att), "fresh proof verifies");
 
     // 8-limb Sui packing, pinned byte-for-byte (all limbs < r, so LE
     // canonical round-trips exactly).
@@ -122,26 +122,26 @@ fn roundtrip_and_packing_pins() {
 #[test]
 fn tampered_public_input_fails_verify() {
     let (c1b, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
-    let mut att = felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk))
+    let mut att = felica_prover::prove(test_key(), &prove_req(c1b, c2a, auth2, cm, gsk, usk))
         .expect("genuine session proves");
     // Flip the lowest nibble of pi0 (r1): stays valid hex/Fr, breaks pairing.
     let mut s = att.proof.public_inputs[0].clone();
     let last = s.pop().unwrap();
     s.push(if last == '0' { '1' } else { '0' });
     att.proof.public_inputs[0] = s;
-    assert!(!verify_attestation(&att), "tampered pi must not verify");
+    assert!(!verify_attestation(&test_key().vk, &att), "tampered pi must not verify");
 }
 
 #[test]
 fn tampered_proof_bytes_fail_verify() {
     let (c1b, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
-    let mut att = felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk))
+    let mut att = felica_prover::prove(test_key(), &prove_req(c1b, c2a, auth2, cm, gsk, usk))
         .expect("genuine session proves");
     let mut s = att.proof.a.0.clone();
     let last = s.pop().unwrap();
     s.push(if last == '0' { '1' } else { '0' });
     att.proof.a.0 = s;
-    assert!(!verify_attestation(&att), "tampered proof must not verify");
+    assert!(!verify_attestation(&test_key().vk, &att), "tampered proof must not verify");
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn rejects_tampered_auth2() {
     let (c1b, c2a, mut auth2, gsk, usk, cm) = mint_fixed(&R1);
     auth2[0] ^= 0xFF;
     assert_eq!(
-        felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk)),
+        felica_prover::prove(test_key(), &prove_req(c1b, c2a, auth2, cm, gsk, usk)),
         Err(ProverError::MacMismatch)
     );
 }
@@ -159,7 +159,7 @@ fn rejects_tid_mismatch() {
     let (_, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
     let (c1b_b, _, _, _, _, _) = mint_fixed(&R1B);
     assert_eq!(
-        felica_prover::prove(&prove_req(c1b_b, c2a, auth2, cm, gsk, usk)),
+        felica_prover::prove(test_key(), &prove_req(c1b_b, c2a, auth2, cm, gsk, usk)),
         Err(ProverError::TidMismatch)
     );
 }
@@ -169,7 +169,7 @@ fn rejects_tampered_c1b() {
     let (mut c1b, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
     c1b[0] ^= 0xFF;
     assert!(
-        felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk)).is_err(),
+        felica_prover::prove(test_key(), &prove_req(c1b, c2a, auth2, cm, gsk, usk)).is_err(),
         "forged c1b must not prove"
     );
 }

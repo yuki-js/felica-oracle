@@ -7,12 +7,11 @@
 //! | `des/single_block` | ~1.25µs — native DES, criterion defaults |
 //! | `des/session_precheck` | ~20µs — tdes recover + CBC + MAC natively |
 //! | `r1cs/synthesize_blank` | ~92ms — constraint synthesis only, no key |
-//! | `groth16_prove/prove` | ~1.2s/iter — full prove (first iter includes setup) |
+//! | `groth16_prove/prove` | ~1.2s/iter — full prove with external key |
 //! | `groth16_verify/verify` | ~2.1ms — `verify_attestation` on a fixed proof |
 //!
-//! `groth16/prove` uses few samples on purpose: each iteration is a real
-//! Groth16 prove (~0.6GB peak). The proving key is process-cached, so the
-//! first iteration also pays setup (~0.7s).
+//! The proving key is loaded once from `FELICA_TEST_PK` (setup output) and
+//! shared across iterations — no setup happens here.
 
 use std::time::Duration;
 
@@ -122,6 +121,14 @@ fn session_precheck(req: &ProveRequest) {
     assert_eq!(&pt[2..8], &r1[2..8]);
 }
 
+fn bench_key() -> felica_prover::FelicaProvingKey {
+    let path = std::env::var("FELICA_TEST_PK")
+        .expect("FELICA_TEST_PK must point at a proving-key file");
+    let bytes =
+        std::fs::read(&path).unwrap_or_else(|e| panic!("read proving key at {path}: {e}"));
+    felica_prover::load_proving_key(&bytes).expect("deserialize proving key")
+}
+
 fn benches(c: &mut Criterion) {
     // Native single DES block (spec vector key).
     let key: [u8; 8] = hex!("133457799bbcdff1");
@@ -145,18 +152,19 @@ fn benches(c: &mut Criterion) {
     g.finish();
 
     // Full Groth16 prove on a genuine vector (few samples: ~1.3s each).
+    let pk = bench_key();
     let mut g = c.benchmark_group("groth16_prove");
     g.sample_size(10);
     g.measurement_time(Duration::from_secs(30));
     g.bench_function("prove", |b| {
-        b.iter(|| felica_prover::prove(&req).expect("prove"));
+        b.iter(|| felica_prover::prove(&pk, &req).expect("prove"));
     });
     g.finish();
 
     // Verify on a fixed proof (proving happens once, outside the loop).
-    let att = felica_prover::prove(&req).expect("fixture proof");
+    let att = felica_prover::prove(&pk, &req).expect("fixture proof");
     c.bench_function("groth16_verify/verify", |b| {
-        b.iter(|| verify_attestation(&att));
+        b.iter(|| verify_attestation(&pk.vk, &att));
     });
 }
 

@@ -226,6 +226,22 @@ pub fn prove_req(
     }
 }
 
+/// Setup-generated proving key for tests, loaded once per test binary.
+///
+/// Requires `FELICA_TEST_PK` to point at a proving-key file (setup ceremony
+/// output). No key generation happens here.
+pub fn test_key() -> &'static felica_prover::FelicaProvingKey {
+    static KEY: std::sync::OnceLock<felica_prover::FelicaProvingKey> =
+        std::sync::OnceLock::new();
+    KEY.get_or_init(|| {
+        let path = std::env::var("FELICA_TEST_PK")
+            .expect("FELICA_TEST_PK must point at a proving-key file");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("read proving key at {path}: {e}"));
+        felica_prover::load_proving_key(&bytes).expect("deserialize proving key")
+    })
+}
+
 /// Full R1CS witnesses for a genuine fixed-challenge session: everything
 /// [`check_satisfiable`](felica_prover::check_satisfiable) consumes.
 pub fn genuine_circuit(r1: &[u8; 8]) -> FelicaCircuit {

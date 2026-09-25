@@ -184,21 +184,21 @@ fn fuzz_mutations_never_satisfy() {
 #[test]
 fn verify_rejects_garbage() {
     let (c1b, c2a, auth2, gsk, usk, cm) = mint_fixed(&R1);
-    let base = felica_prover::prove(&prove_req(c1b, c2a, auth2, cm, gsk, usk))
+    let base = felica_prover::prove(test_key(), &prove_req(c1b, c2a, auth2, cm, gsk, usk))
         .expect("genuine session proves");
-    assert!(verify_attestation(&base));
+    assert!(verify_attestation(&test_key().vk, &base));
     for tamper in ["zz", "", "00", &"ff".repeat(31), &"ff".repeat(33)] {
         let mut bad = base.clone();
         bad.proof.a.0 = tamper.to_string();
-        assert!(!verify_attestation(&bad), "garbage a.x rejected");
+        assert!(!verify_attestation(&test_key().vk, &bad), "garbage a.x rejected");
         let mut bad = base.clone();
         bad.proof.public_inputs[5] = tamper.to_string();
-        assert!(!verify_attestation(&bad), "garbage pi rejected");
+        assert!(!verify_attestation(&test_key().vk, &bad), "garbage pi rejected");
     }
     let mut bad = base.clone();
     bad.proof.public_inputs.pop();
-    assert!(!verify_attestation(&bad), "short pi rejected");
+    assert!(!verify_attestation(&test_key().vk, &bad), "short pi rejected");
     let mut bad = base.clone();
     bad.proof.public_inputs.push("00".repeat(32));
-    assert!(!verify_attestation(&bad), "long pi rejected");
+    assert!(!verify_attestation(&test_key().vk, &bad), "long pi rejected");
 }

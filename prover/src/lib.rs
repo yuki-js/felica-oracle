@@ -12,15 +12,11 @@
 //! each, strictly `< r`); `idi‖r2` packs two 8B values into one 128-bit
 //! limb. `cm` is already a canonical Fr (< r). See `circuit.rs` docs.
 //!
-//! Proving key: test deployments use OS randomness
-//! (`generate_random_parameters` equivalent via `circuit_specific_setup`).
-//! Production MUST replace the cached key with a ceremony output — the
-//! `vk` embedding into Move contracts is a later explicit step.
-
-use std::sync::LazyLock;
+//! Setup is external: the proving key is generated once (ceremony output)
+//! and loaded via [`load_proving_key`]; this crate never generates keys.
+//! The `vk` is embedded into verifier contracts out of band.
 
 use ark_bn254::{Bn254, Fr};
-use ark_groth16::{ProvingKey, VerifyingKey};
 use ark_serialize::CanonicalSerialize;
 use ark_snark::SNARK;
 use thiserror::Error;
@@ -30,6 +26,11 @@ pub use commit::commit;
 
 pub mod circuit;
 pub mod des;
+pub mod setup;
+pub use setup::{
+    FelicaProvingKey, FelicaVerifyingKey, KeyLoadError, encode_proving_key, encode_verifying_key,
+    load_proving_key, load_verifying_key,
+};
 
 use circuit::{FelicaCircuit, public_inputs_fr};
 
@@ -113,12 +114,6 @@ fn fq_to_hex<F: CanonicalSerialize>(f: &F) -> String {
     hex::encode(buf)
 }
 
-static PARAMS: LazyLock<(ProvingKey<Bn254>, VerifyingKey<Bn254>)> = LazyLock::new(|| {
-    let mut rng = rand::thread_rng();
-    ark_groth16::Groth16::<Bn254>::circuit_specific_setup(FelicaCircuit::blank(), &mut rng)
-        .expect("setup over blank circuit")
-});
-
 /// Constraint/variable counts of the blank circuit (perf-regression guard).
 pub fn blank_constraint_counts() -> (usize, usize, usize) {
     use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
@@ -149,9 +144,12 @@ pub fn check_satisfiable(c: FelicaCircuit) -> bool {
     cs.is_satisfied().unwrap_or(false)
 }
 
-/// Verify a proof against the cached test VK (roundtrip check).
-pub fn verify_proof(public_inputs: &[Fr], proof: &ark_groth16::Proof<Bn254>) -> bool {
-    let vk = &PARAMS.1;
+/// Verify a proof against an explicit verifying key.
+pub fn verify_proof(
+    vk: &FelicaVerifyingKey,
+    public_inputs: &[Fr],
+    proof: &ark_groth16::Proof<Bn254>,
+) -> bool {
     let pvk = ark_groth16::prepare_verifying_key(vk);
     ark_groth16::Groth16::<Bn254>::verify_with_processed_vk(&pvk, public_inputs, proof).unwrap_or(false)
 }
@@ -168,12 +166,12 @@ fn parse_fr(s: &str) -> Option<Fr> {
     Fr::deserialize_compressed(&raw[..]).ok()
 }
 
-/// Verify a hex-encoded [`Attestation`] against the cached test VK.
+/// Verify a hex-encoded [`Attestation`] against an explicit verifying key.
 ///
 /// Returns `false` (never panics) on any malformed coordinate, off-curve
 /// point, or pairing-equation failure. Tampering with any public input
 /// breaks the Groth16 verification equation.
-pub fn verify_attestation(att: &Attestation) -> bool {
+pub fn verify_attestation(vk: &FelicaVerifyingKey, att: &Attestation) -> bool {
     if att.proof.public_inputs.len() != circuit::PUBLIC_INPUT_ORDER.len() {
         return false;
     }
@@ -211,15 +209,16 @@ pub fn verify_attestation(att: &Attestation) -> bool {
             None => return false,
         }
     }
-    verify_proof(&pis, &proof)
+    verify_proof(vk, &pis, &proof)
 }
 
 /// Generate the attestation proof for one verified session.
 ///
 /// Native pre-checks mirror the circuit (§7.1) so failures map to typed
 /// §8.4 errors before proving; the circuit then re-enforces the same
-/// relations in zero knowledge.
-pub fn prove(req: &ProveRequest) -> Result<Attestation, ProverError> {
+/// relations in zero knowledge. `pk` is the externally generated proving
+/// key — this function never generates keys.
+pub fn prove(pk: &FelicaProvingKey, req: &ProveRequest) -> Result<Attestation, ProverError> {
     use des::{cbc_decrypt, command_mac, des_encrypt, tdes_decrypt, tdes_encrypt};
 
     // Key schedule outside the circuit (spec §4.1).
@@ -270,13 +269,12 @@ pub fn prove(req: &ProveRequest) -> Result<Attestation, ProverError> {
         l,
         beta,
     };
-    let (pk, _vk) = &*PARAMS;
     let mut rng = rand::thread_rng();
     let proof = ark_groth16::Groth16::<Bn254>::prove(pk, circuit, &mut rng)
         .map_err(|_| ProverError::ProveFailed)?;
 
     let pis = public_inputs_fr(&r1, &req.c1b, &req.c2a, &req.auth2, &req.cm, &idi, &r2, req.attested_at);
-    if !verify_proof(&pis, &proof) {
+    if !verify_proof(&pk.vk, &pis, &proof) {
         return Err(ProverError::ProveFailed);
     }
 
