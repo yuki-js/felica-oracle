@@ -1,0 +1,115 @@
+name: Build and Push Oracle Image
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "server/**"
+      - "prover/**"
+      - "assets/proving_key.bin"
+      - ".github/workflows/docker-publish.yml"
+
+# Rustのフルビルドは長いので、後続pushで旧runをキャンセルする。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: yuki-js/felica-oracle
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-sha-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 落とし穴: Rustビルドはdiskを食う。vaginaと同パターンで空ける。
+      - uses: jlumbroso/free-disk-space@main
+
+      - uses: docker/setup-buildx-action@v3
+
+      # GHCR_TOKENは全リポジトリで不使用。GITHUB_TOKENで足りる。
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 落とし穴(jp-id-v0): :latestのみは切戻し不能。shaタグを併用する。
+      # 非defaultブランチからの手動実行では:latestを上書きしない。
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # cluster nodeは全てlinux/amd64。QEMU経由のarm64混載はRustで
+      # 極端に遅いので混ぜない (ローカルarm開発用が要れば別jobで)。
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: true
+
+  # 落とし穴(UsagiVerify): cache-fromに無関係なregistry参照を
+  # 書かない。上はghaキャッシュのみ。
+
+  smoke-test:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ダミー鍵で起動→JSON-RPC pingがpongを返すことを確認。
+      # 本番鍵は不要。proving keyはimage内蔵なので起動できるはず。
+      - run: |
+          IMG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          docker pull "$IMG"
+          docker run -d --name oracle \
+            -p 3000:3000 \
+            -e FELICA_KEYS_JSON='{"k_group":"0001020304050607","k_user":"08090a0b0c0d0e0f","system_code":3,"areas":[64],"services":[72]}' \
+            -e FELICA_BIND_ADDR=0.0.0.0:3000 \
+            "$IMG"
+          for i in $(seq 1 30); do
+            if curl -sf -X POST http://127.0.0.1:3000 \
+              -H 'Content-Type: application/json' \
+              -d '{"jsonrpc":"2.0","id":1,"method":"ping","params":[]}' | grep -q pong; then
+              echo "ping OK"; break
+            fi
+            sleep 2
+            if [ "$i" = 30 ]; then echo "ping FAILED"; docker logs oracle; exit 1; fi
+          done
+          docker logs oracle
+          docker rm -f oracle
+
+  # quarkus-crud/k8s-validate.ymlの軽量版。cluster不要。
+  k8s-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - run: |
+          kubectl kustomize manifests > /tmp/manifests.yaml
+          grep -q 'ghcr.io/yuki-js/felica-oracle' /tmp/manifests.yaml
+          kubectl apply --dry-run=client -k manifests
