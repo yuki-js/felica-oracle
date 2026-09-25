@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 # FeliCa oracle server (stateless JSON-RPC over POST /).
-# Build context: repository root (needs server/ + prover/).
+# Build context: repository root (needs server/ + prover/ + assets/).
+# The proving key is baked into the image (public material, also served via
+# `get_proving_key`): assets/proving_key.bin, generated once via
+# `cargo run -p felica-prover --bin felica-setup`.
+# sha256: fae36c218797438cc212af09490b046c630d3fb9a432d63bc1dd5e6a1d02aa44
 # No cluster changes are made by this file.
 
 FROM rust:1.89-slim-bookworm AS builder
@@ -27,6 +31,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && useradd -u 65532 -r -s /usr/sbin/nologin appuser
 COPY --from=builder /build/server/target/release/felica-oracle /usr/local/bin/felica-oracle
+COPY assets/proving_key.bin /app/proving-key/key.bin
 USER 65532:65532
 EXPOSE 3000
 # jsonrpsee serves POST / only (GET / -> 405). Ping via JSON-RPC.

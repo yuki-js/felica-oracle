@@ -40,11 +40,21 @@ spec:
               name: http
               protocol: TCP
           env:
-            - name: APP_CONFIG
+            - name: FELICA_KEYS_JSON
               valueFrom:
                 secretKeyRef:
                   name: oracle-secret
-                  key: app-config
+                  key: keys.json
+            - name: FELICA_BIND_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: oracle-config
+                  key: bind-addr
+            - name: FELICA_PROVING_KEY_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: oracle-config
+                  key: proving-key-path
             - name: RUST_LOG
               value: info
           # Measured 2026-09-25 (release, this host):
@@ -62,8 +72,8 @@ spec:
               memory: "1536Mi"
               cpu: "2000m"
           # No GET /health in jsonrpsee (POST / only, GET -> 405), so
-          # tcpSocket probes. Proving-key setup ~1-2s on first attest;
-          # startupProbe covers it.
+          # tcpSocket probes. Proving-key file load happens at startup
+          # before listen; startupProbe covers it.
           livenessProbe:
             tcpSocket:
               port: 3000

@@ -1,0 +1,13 @@
+# Non-sensitive oracle knobs. Key material and the node path live in the
+# `oracle-secret` Secret; this ConfigMap holds only operational locations.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oracle-config
+  namespace: felica-oracle
+  labels:
+    app: felica-oracle
+    environment: production
+data:
+  bind-addr: "0.0.0.0:3000"
+  proving-key-path: "/app/proving-key/key.bin"
